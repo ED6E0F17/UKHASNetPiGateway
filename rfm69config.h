@@ -6,7 +6,7 @@
 static const uint8_t CONFIG[][2] =
 {
     { RFM69_REG_01_OPMODE,      RF_OPMODE_SEQUENCER_ON | RF_OPMODE_LISTEN_OFF | RFM69_MODE_SLEEP },
-    { RFM69_REG_02_DATA_MODUL,  RF_DATAMODUL_DATAMODE_PACKET | RF_DATAMODUL_MODULATIONTYPE_FSK | RF_DATAMODUL_MODULATIONSHAPING_00 },
+    { RFM69_REG_02_DATA_MODUL,  0x00},
     
     { RFM69_REG_03_BITRATE_MSB, 0x3E}, // 2000 bps
     { RFM69_REG_04_BITRATE_LSB, 0x80},
@@ -21,10 +21,9 @@ static const uint8_t CONFIG[][2] =
     { RFM69_REG_0B_AFC_CTRL,    RF_AFCLOWBETA_ON }, // AFC Offset On
     
     // PA Settings
-    // +20dBm formula: Pout=-11+OutputPower[dBmW] (with PA1 and PA2)** and high power PA settings (section 3.3.7 in datasheet)
-    // Without extra flags: Pout=-14+OutputPower[dBmW]
-    //{ RFM69_REG_11_PA_LEVEL,    RF_PALEVEL_PA0_OFF | RF_PALEVEL_PA1_ON | RF_PALEVEL_PA2_ON | 0x18},  // 10mW
-    { RFM69_REG_11_PA_LEVEL, RF_PALEVEL_PA0_OFF | RF_PALEVEL_PA1_ON | RF_PALEVEL_PA2_ON | 0x1f},// 50mW
+    // Pout = -18 + OutputPower[dBmW]
+    { RFM69_REG_11_PA_LEVEL,    RF_PALEVEL_PA0_ON | RF_PALEVEL_PA1_OFF | RF_PALEVEL_PA2_OFF | 21},  // 2mW
+    //{ RFM69_REG_11_PA_LEVEL, RF_PALEVEL_PA0_OFF | RF_PALEVEL_PA1_ON | RF_PALEVEL_PA2_ON | 0x18},// 20mW
     
     { RFM69_REG_13_OCP,         RF_OCP_ON | RF_OCP_TRIM_95 },
     
@@ -49,7 +48,7 @@ static const uint8_t CONFIG[][2] =
      */
     { RFM69_REG_2B_RX_TIMEOUT2, 40 },
 
-    // { RFM69_REG_2D_PREAMBLE_LSB, RF_PREAMBLESIZE_LSB_VALUE } // default 3 preamble bytes 0xAAAAAA
+    { RFM69_REG_2D_PREAMBLE_LSB, RF_PREAMBLESIZE_LSB_VALUE + 2 }, // default 3 preamble bytes 0xAAAAAA
     
     //{ RFM69_REG_2E_SYNC_CONFIG, RF_SYNC_OFF | RF_SYNC_FIFOFILL_MANUAL }, // Sync bytes off
     { RFM69_REG_2E_SYNC_CONFIG, RF_SYNC_ON | RF_SYNC_FIFOFILL_AUTO | RF_SYNC_SIZE_2 | RF_SYNC_TOL_0 },

@@ -11,10 +11,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <unistd.h>
 
 #include <wiringPi.h>
 #include <wiringPiSPI.h>
-#include <gertboard.h>
 
 #include "rfm69.h"
 #include "rfm69config.h"
@@ -28,7 +28,7 @@
     uint8_t             _sleepMode;
     uint8_t             _idleMode;
     uint8_t             _afterTxMode;
-    uint8_t          _channel;
+    uint8_t             _channel;
     //SPI                 _spi;
     //InterruptIn         _interrupt;
     uint8_t             _deviceType;
@@ -53,19 +53,10 @@
 void spiWrite(uint8_t reg, uint8_t val)
 {
 	unsigned char data[2];
-	
-    // noInterrupts();    // Disable Interrupts
-    // digitalWrite(_slaveSelectPin, LOW);
     
 	data[0] = reg | RFM69_SPI_WRITE_MASK;
 	data[1] = val;
 	wiringPiSPIDataRW(_channel, data, 2);
-	
-    // SPI.transfer(reg | RFM69_SPI_WRITE_MASK); // Send the address with the write mask on
-    // SPI.transfer(val); // New value follows
-
-    // digitalWrite(_slaveSelectPin, HIGH);
-    // interrupts();     // Enable Interrupts
 }
 
 uint8_t spiRead(uint8_t reg)
@@ -73,21 +64,12 @@ uint8_t spiRead(uint8_t reg)
 	unsigned char data[2];
 	uint8_t val;
 	
-    // noInterrupts();    // Disable Interrupts
-    // digitalWrite(_slaveSelectPin, LOW);
-    
 	data[0] = reg & ~RFM69_SPI_WRITE_MASK;
 	data[1] = 0;
 	wiringPiSPIDataRW(_channel, data, 2);
 	val = data[1];
-
-    // SPI.transfer(reg & ~RFM69_SPI_WRITE_MASK); // Send the address with the write mask off
-    // uint8_t val = SPI.transfer(0); // The written value is ignored, reg value is read
-    
-    // digitalWrite(_slaveSelectPin, HIGH);
-    // interrupts();     // Enable Interrupts
 	
-    return val;
+        return val;
 }
 
 void spiBurstRead(uint8_t reg, uint8_t* dest, uint8_t len)
@@ -95,11 +77,6 @@ void spiBurstRead(uint8_t reg, uint8_t* dest, uint8_t len)
 	unsigned char data[128];
 	int i;
 	
-    // digitalWrite(_slaveSelectPin, LOW);
-    
-    // SPI.transfer(reg & ~RFM69_SPI_WRITE_MASK); // Send the start address with the write mask off
-    // while (len--)
-    //     *dest++ = SPI.transfer(0);
 	data[0] = reg & ~RFM69_SPI_WRITE_MASK;
 	wiringPiSPIDataRW(_channel, data, len+1);
 
@@ -107,8 +84,6 @@ void spiBurstRead(uint8_t reg, uint8_t* dest, uint8_t len)
 	{
 		dest[i] = data[i+1];
 	}
-	
-    // digitalWrite(_slaveSelectPin, HIGH);
 }
 
 void setMode(uint8_t newMode)
@@ -116,57 +91,12 @@ void setMode(uint8_t newMode)
     spiWrite(RFM69_REG_01_OPMODE, (spiRead(RFM69_REG_01_OPMODE) & 0xE3) | newMode);
     while((spiRead(RFM69_REG_27_IRQ_FLAGS1) & RF_IRQFLAGS1_MODEREADY) == 0)
     {
-        printf(".");
+        usleep(1000);
     }
     _mode = newMode;
     printf ("Mode = %d\n", spiRead(RFM69_REG_01_OPMODE));
 }
 
-void rfm69_handleTimeoutInterrupt()
-{
-    // RX
-    if(_mode == RFM69_MODE_RX) {
-        printf("Restart Rx\n");
-        spiWrite(RFM69_REG_3D_PACKET_CONFIG2, spiRead(RFM69_REG_3D_PACKET_CONFIG2) | RF_PACKET2_RXRESTART);
-    }
-}
-
-/*
-void RFM69::setModeSleep()
-{
-    setMode(RFM69_MODE_SLEEP);
-}
-void RFM69::setModeRx()
-{
-    setMode(RFM69_MODE_RX);
-}
-void RFM69::setModeTx()
-{
-    setMode(RFM69_MODE_TX);
-}
-uint8_t  RFM69::mode()
-{
-    return _mode;
-}
-*/
-
-void clearTxBuf()
-{
-    // noInterrupts();   // Disable Interrupts
-    _bufLen = 0;
-    _txBufSentIndex = 0;
-    _txPacketSent = false;
-    // interrupts();     // Enable Interrupts
-}
-
-void clearRxBuf()
-{
-    // noInterrupts();   // Disable Interrupts
-    _bufLen = 0;
-    _rxBufValid = false;
-    // interrupts();     // Enable Interrupts
-}
-	
 boolean rfm69_init(int chan)
 {
     int i;
@@ -183,17 +113,9 @@ boolean rfm69_init(int chan)
         fprintf (stderr, "Unable to setup wiringPi: %s\n", strerror (errno));
         return false;
     }
-    if ( wiringPiISR (RFM69_DIO0_PIN, INT_EDGE_RISING, &rfm69_handleInterrupt) < 0 ) {
-        fprintf (stderr, "Unable to setup ISR: %s\n", strerror (errno));
-        return false;
-    }
-    if ( wiringPiISR (RFM69_DIO4_PIN, INT_EDGE_RISING, &rfm69_handleTimeoutInterrupt) < 0 ) {
-        fprintf (stderr, "Unable to setup ISR: %s\n", strerror (errno));
-        return false;
-    }
     if (wiringPiSPISetup(_channel, 500000) < 0)
     {
-        fprintf(stderr, "Failed to open SPI port.  Try loading spi library with 'gpio load spi'");
+        fprintf(stderr, "Failed to open SPI port.  Try loading spi device tree param.");
         return false;
     }
 
@@ -224,12 +146,6 @@ boolean rfm69_init(int chan)
     _threshold_val = spiRead(RFM69_REG_29_RSSI_THRESHOLD);
     setMode(_mode);
 
-    // interrupt on PayloadReady
-    spiWrite(RFM69_REG_25_DIO_MAPPING1, RF_DIOMAPPING1_DIO0_01);
-
-    clearTxBuf();
-    clearRxBuf();
-
     return true;
 }
 
@@ -237,57 +153,6 @@ boolean rfm69_available()
 {
     return _rxBufValid;
 }
-
-void rfm69_handleInterrupt()
-{
-    // RX
-    if(_mode == RFM69_MODE_RX) {
-        _lastRssi = rssiRead();
-        // PAYLOADREADY (incoming packet)
-        if (spiRead(RFM69_REG_28_IRQ_FLAGS2) & RF_IRQFLAGS2_PAYLOADREADY)
-        {
-            _bufLen = spiRead(RFM69_REG_00_FIFO);
-            spiBurstRead(RFM69_REG_00_FIFO, _buf, RFM69_FIFO_SIZE); // Read out full fifo
-            _rxGood++;
-            _rxBufValid = true;
-            // spiWrite(RFM69_REG_28_IRQ_FLAGS2, spiRead(RFM69_REG_28_IRQ_FLAGS2) & ~RF_IRQFLAGS2_PAYLOADREADY);
-        }
-        // read noise floor and set RSSI threshold
-        _floorRssi = rssiMeasure();
-    }
-    // TX
-    else if(_mode == RFM69_MODE_TX) {
-
-        // PacketSent
-        if(spiRead(RFM69_REG_28_IRQ_FLAGS2) & RF_IRQFLAGS2_PACKETSENT) {
-            _txGood++;
-            spiWrite(RFM69_REG_25_DIO_MAPPING1, RF_DIOMAPPING1_DIO0_01);
-            setMode(_afterTxMode);
-            _txPacketSent = true;
-        }
-    }
-}
-
-/*
-
-void RFM69::isr0()
-{
-    handleInterrupt ();
-}
-
-
-void RFM69::spiBurstWrite(uint8_t reg, const uint8_t* src, uint8_t len)
-{
-    digitalWrite(_slaveSelectPin, LOW);
-    
-    SPI.transfer(reg | RFM69_SPI_WRITE_MASK); // Send the start address with the write mask on
-    while (len--)
-        SPI.transfer(*src++);
-        
-    digitalWrite(_slaveSelectPin, HIGH);
-}
-
-*/
 
 int rssiRead()
 {
@@ -303,7 +168,7 @@ int rssiMeasure()
     spiWrite(RFM69_REG_23_RSSI_CONFIG, RF_RSSI_START);
     while((spiRead(RFM69_REG_23_RSSI_CONFIG) & RF_RSSI_DONE) == 0)
     {
-        printf(",");
+        usleep(1000);
         if(count++ > 100) {
             return 0;
         }
@@ -317,7 +182,7 @@ int rssiMeasure()
     {
         _threshold_val++;
     }
-    printf("RSSI %d dBm, threshold %d dBm\n", -rssi_val/2, -_threshold_val/2);
+    //printf("RSSI %d dBm, threshold %d dBm\n", -rssi_val/2, -_threshold_val/2);
     spiWrite(RFM69_REG_29_RSSI_THRESHOLD, _threshold_val);
     spiWrite(RFM69_REG_3D_PACKET_CONFIG2, spiRead(RFM69_REG_3D_PACKET_CONFIG2) | RF_PACKET2_RXRESTART);
     return -rssi_val/2;
@@ -325,15 +190,12 @@ int rssiMeasure()
 
 uint8_t rfmM69_recv(uint8_t* buf, uint8_t len)
 {
-    // if (!available())
     if (_bufLen == 0)
     {
         len = 0;
     }
     else
     {
-        // noInterrupts();   // Disable Interrupts
-
         if (len > _bufLen)
         {
             len = _bufLen;
@@ -341,70 +203,33 @@ uint8_t rfmM69_recv(uint8_t* buf, uint8_t len)
         memcpy(buf, _buf, len);
     }
     buf[len] = '\0';
-    clearRxBuf();
-
-    // interrupts();     // Enable Interrupts
 
     return len;
 }
 
-/*
-void RFM69::startTransmit()
-{
-    //sendNextFragment(); // Actually the first fragment
-    setModeTx(); // Start the transmitter, turns off the receiver
-    //Serial.println("Tx Mode Enabled");
-    delay(10);
-    sendTxBuf();
-}
+void RFM69_tx(char *Message) {
+	char buff[66];
+	uint8_t inpos, outpos;
+	uint8_t len;
 
-boolean RFM69::send(const uint8_t* data, uint8_t len)
-{
-    clearTxBuf();
-//    ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
-    {
-        if (!fillTxBuf(data, len))
-            return false;
-        startTransmit();
-    }
-    spiWrite(RFM69_REG_25_DIO_MAPPING1, RF_DIOMAPPING1_DIO0_00);
-    return true;
-}
+	setMode( RFM69_MODE_TX );
+	usleep(1e4);
 
-boolean RFM69::fillTxBuf(const uint8_t* data, uint8_t len)
-{
-    if (((uint16_t)_bufLen + len) > RFM69_MAX_MESSAGE_LEN)
-        return false;
-    noInterrupts();   // Disable Interrupts
-    memcpy(_buf + _bufLen, data, len);
-    _bufLen += len;
-    interrupts();     // Enable Interrupts
-    return true;
-}
+	len = 63 & strlen(Message);
+	inpos = outpos = 0;
+	buff[outpos++] = RFM69_REG_00_FIFO | RFM69_SPI_WRITE_MASK;
+	buff[outpos++] = len;
+	while (len--)
+		buff[outpos++] = Message[inpos++];
+        wiringPiSPIDataRW(1, (uint8_t *)&buff[0], outpos);
 
-void RFM69::sendTxBuf() {
-    if(_bufLen<RFM69_FIFO_SIZE) {
-        uint8_t* src = _buf;
-        uint8_t len = _bufLen;
-        digitalWrite(_slaveSelectPin, LOW);
-	    SPI.transfer(RFM69_REG_00_FIFO | RFM69_SPI_WRITE_MASK); // Send the start address with the write mask on
-	    SPI.transfer(len);
-    	while (len--)
-        	SPI.transfer(*src++);
-	    digitalWrite(_slaveSelectPin, HIGH);
-    }
+	while (!( (spiRead(RFM69_REG_28_IRQ_FLAGS2) & RF_IRQFLAGS2_PACKETSENT) ))
+		usleep(1e4);
+	setMode( RFM69_MODE_SLEEP );	
 }
-
-void RFM69::readRxBuf()
-{
-    spiBurstRead(RFM69_REG_00_FIFO, _buf, RFM69_FIFO_SIZE);
-    _bufLen += RFM69_FIFO_SIZE;
-}
-*/
 
 int RFM69_lastRssi()
 {
-    return _lastRssi;
+	return _lastRssi;
 }
 
-/* vim:set et sts=4 sw=4: */
